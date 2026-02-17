@@ -1,0 +1,145 @@
+import streamlit as st
+import streamlit.components.v1 as components
+import time
+import random
+
+# --- CONFIGURATION ---
+st.set_page_config(page_title="ASCEND Pro Dashboard", layout="wide")
+
+# --- DATA RETRIEVAL (MOCK/REAL-TIME) ---
+# In production, replace these with: 
+# data = serial.readline() or requests.get("http://esp32.local/data")
+def get_hardware_data():
+    return {
+        "fsr_force": random.uniform(10, 80),   # Interlink FSR Tested Value (N)
+        "servo_pos": random.randint(750, 1100),# Servo Height Tested Value (mm)
+        "teensy_v": random.uniform(11.8, 12.6),# Teensy Battery Monitor (V)
+        "stability": random.uniform(0.05, 0.2),# Stability Index
+        "temp": random.uniform(30, 35)         # Motor Temperature
+    }
+
+# --- STREAMLIT UI ---
+st.title("ASCEND Hardware Integration")
+
+# Sidebar for manual overrides/settings
+with st.sidebar:
+    st.header("Hardware Controls")
+    lift_speed = st.slider("Lift Speed", 1, 10, 5)
+    ai_sens = st.slider("AI Sensitivity", 1, 10, 5)
+    if st.button("Emergency Stop", type="primary"):
+        st.error("HARDWARE KILL-SWITCH TRIGGERED")
+
+# --- DASHBOARD LOGIC ---
+# We use a placeholder to refresh the HTML component without refreshing the whole page
+placeholder = st.empty()
+
+while True:
+    data = get_hardware_data()
+    
+    # Calculate battery percentage based on tested 10.5V - 12.6V range
+    batt_pct = max(0, min(100, ((data['teensy_v'] - 10.5) / (12.6 - 10.5)) * 100))
+    
+    # YOUR MODIFIED HTML CODE (Injected with Python Variables)
+    # We use f-strings to pass Python data directly into the HTML/JS
+    dashboard_html = f"""
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <script src="https://cdn.tailwindcss.com"></script>
+        <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+        <style>
+            body {{ font-family: 'Inter', sans-serif; background-color: #f3f4f6; overflow: hidden; }}
+            .card {{ box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); background: white; border-radius: 0.75rem; padding: 1.25rem; }}
+        </style>
+    </head>
+    <body class="p-2">
+        <div class="grid grid-cols-12 gap-4">
+            
+            <div class="col-span-4 space-y-4">
+                <div class="card">
+                    <h2 class="text-xs font-bold text-gray-400 uppercase mb-4">Tested Hardware Feed</h2>
+                    
+                    <div class="space-y-3">
+                        <div class="bg-indigo-50 p-3 rounded-lg border border-indigo-100">
+                            <span class="text-[10px] text-indigo-500 block">Interlink FSR (Grip)</span>
+                            <span class="text-xl font-bold text-indigo-700">{data['fsr_force']:.1f} <span class="text-sm">N</span></span>
+                        </div>
+
+                        <div class="bg-blue-50 p-3 rounded-lg border border-blue-100">
+                            <span class="text-[10px] text-blue-500 block">Servo Position (Height)</span>
+                            <span class="text-xl font-bold text-blue-700">{data['servo_pos']} <span class="text-sm">mm</span></span>
+                        </div>
+
+                        <div class="bg-gray-50 p-3 rounded-lg border border-gray-100">
+                            <div class="flex justify-between items-center mb-1">
+                                <span class="text-[10px] text-gray-500">Teensy Power Rail</span>
+                                <span class="text-xs font-bold">{batt_pct:.0f}%</span>
+                            </div>
+                            <span class="text-xl font-bold text-gray-800">{data['teensy_v']:.2f}V</span>
+                            <div class="w-full bg-gray-200 h-1.5 rounded-full mt-2 overflow-hidden">
+                                <div class="bg-green-500 h-full" style="width: {batt_pct}%"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-span-8">
+                <div class="card h-full">
+                    <h2 class="text-xs font-bold text-gray-400 uppercase mb-4">Stability Analysis</h2>
+                    <div class="flex items-center gap-6">
+                        <div class="text-center">
+                            <span class="text-[10px] text-gray-400 block">Current Index</span>
+                            <span class="text-4xl font-black text-green-600">{data['stability']:.2f}</span>
+                        </div>
+                        <div class="flex-1">
+                             <canvas id="liveChart" height="100"></canvas>
+                        </div>
+                    </div>
+                    <div class="mt-4 grid grid-cols-2 gap-2">
+                        <div class="p-2 bg-gray-50 rounded text-center">
+                            <span class="text-[10px] block text-gray-400">Motor Temp</span>
+                            <span class="font-bold">{data['temp']:.1f}°C</span>
+                        </div>
+                        <div class="p-2 bg-gray-50 rounded text-center">
+                            <span class="text-[10px] block text-gray-400">System State</span>
+                            <span class="font-bold text-green-600">READY</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+
+        <script>
+            // Simple logic to keep the UI feeling "live" inside the component
+            const ctx = document.getElementById('liveChart').getContext('2d');
+            new Chart(ctx, {{
+                type: 'line',
+                data: {{
+                    labels: ['', '', '', '', '', ''],
+                    datasets: [{{
+                        data: [{data['stability']}, 0.12, 0.08, 0.15, 0.1, {data['stability']}],
+                        borderColor: '#4f46e5',
+                        borderWidth: 2,
+                        fill: false,
+                        pointRadius: 0
+                    }}]
+                }},
+                options: {{ 
+                    responsive: true, 
+                    plugins: {{ legend: {{ display: false }} }},
+                    scales: {{ y: {{ display: false }}, x: {{ display: false }} }}
+                }}
+            }});
+        </script>
+    </body>
+    </html>
+    """
+    
+    # Render into the Streamlit app
+    with placeholder:
+        components.html(dashboard_html, height=450)
+    
+    # Update frequency (matches your 500ms loop)
+    time.sleep(0.5)
